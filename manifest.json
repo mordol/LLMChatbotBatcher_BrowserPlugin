@@ -5,7 +5,8 @@
   "description": "LLM 웹서비스에 복수의 문서내용을 순차적으로 입력하고 출력한 결과를 개별 문서로 생성하는 플러그인",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "downloads"
   ],
   "action": {
     "default_title": "LLM Chatbot Batcher"

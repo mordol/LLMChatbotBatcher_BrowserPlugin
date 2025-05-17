@@ -1,3 +1,6 @@
+// 전역 변수로 파일 목록 저장
+let selectedFiles = [];
+
 // textarea에 문자열을 입력하는 함수
 function inputTextToTextarea(text) {
     // textarea 요소 찾기 (aria-invalid와 placeholder 속성 사용)
@@ -56,20 +59,29 @@ function togglePanel() {
     }
 }
 
-// 파일 목록에 파일 경로 추가
-function addFileToList(filePath) {
+// 파일 목록에 파일 추가
+function addFileToList(fileName) {
     const fileList = document.getElementById('file-list');
     if (fileList) {
         const fileItem = document.createElement('div');
-        fileItem.textContent = filePath;
+        fileItem.textContent = fileName;
         fileItem.style.cssText = `
             padding: 5px;
             border-bottom: 1px solid #eee;
             word-break: break-all;
+            font-size: 14px;
+            color: #333;
         `;
         fileList.appendChild(fileItem);
     }
 }
+
+// background script로부터 메시지 수신
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "togglePanel") {
+        togglePanel();
+    }
+});
 
 // 패널 생성 함수
 function createPanel() {
@@ -93,7 +105,7 @@ function createPanel() {
     
     // 파일 선택 버튼 생성
     const fileSelectButton = document.createElement('button');
-    fileSelectButton.textContent = 'File select';
+    fileSelectButton.textContent = '파일 선택';
     fileSelectButton.style.cssText = `
         padding: 10px;
         background-color: #4CAF50;
@@ -114,8 +126,19 @@ function createPanel() {
     // 파일 선택 이벤트 처리
     fileInput.addEventListener('change', (event) => {
         const files = event.target.files;
-        for (let file of files) {
-            addFileToList(file.path);
+        if (files.length > 0) {
+            // 파일 목록을 전역 변수에 저장
+            selectedFiles = Array.from(files);
+            console.log('선택된 파일 목록:', selectedFiles);
+            
+            // 파일 목록 초기화
+            const fileList = document.getElementById('file-list');
+            fileList.innerHTML = '';
+            
+            // 파일 목록에 파일 추가
+            for (let file of selectedFiles) {
+                addFileToList(file.name);
+            }
         }
     });
     
@@ -132,6 +155,7 @@ function createPanel() {
         margin-bottom: 10px;
         border: 1px solid #ddd;
         border-radius: 4px;
+        background-color: #f9f9f9;
     `;
     
     // 파일 목록 생성
@@ -140,6 +164,64 @@ function createPanel() {
     fileList.style.cssText = `
         padding: 10px;
     `;
+    
+    // 테스트 버튼 생성
+    const testButton = document.createElement('button');
+    testButton.textContent = '파일 목록 테스트';
+    testButton.style.cssText = `
+        padding: 10px;
+        background-color: #2196F3;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        margin-bottom: 10px;
+    `;
+    
+    // 테스트 버튼 클릭 이벤트
+    testButton.onclick = async () => {
+        if (selectedFiles.length === 0) {
+            console.log('선택된 파일이 없습니다.');
+            return;
+        }
+        
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            try {
+                const text = await file.text();
+                // 파일명에서 확장자 분리
+                const lastDotIndex = file.name.lastIndexOf('.');
+                const fileName = file.name.substring(0, lastDotIndex);
+                const fileExt = file.name.substring(lastDotIndex);
+                
+                // 새로운 파일명 생성
+                const newFileName = `${fileName}_result${fileExt}`;
+                
+                // Blob 생성
+                const blob = new Blob([text], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                
+                // background script에 다운로드 요청
+                chrome.runtime.sendMessage({
+                    action: "downloadFile",
+                    url: url,
+                    filename: newFileName,
+                    saveAs: false
+                }, (response) => {
+                    if (response && response.success) {
+                        console.log(`파일 ${newFileName} 저장 완료`);
+                    } else {
+                        console.error(`파일 ${newFileName} 저장 실패:`, response?.error);
+                    }
+                    // Blob URL 해제
+                    URL.revokeObjectURL(url);
+                });
+            } catch (error) {
+                console.error(`파일 ${file.name} 처리 중 오류 발생:`, error);
+            }
+        }
+    };
     
     // 닫기 버튼 생성
     const closeButton = document.createElement('button');
@@ -162,17 +244,11 @@ function createPanel() {
     panel.appendChild(fileSelectButton);
     panel.appendChild(fileInput);
     panel.appendChild(fileListContainer);
+    panel.appendChild(testButton);
     panel.appendChild(closeButton);
     
     document.body.appendChild(panel);
 }
-
-// background script로부터 메시지 수신
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "togglePanel") {
-        togglePanel();
-    }
-});
 
 // 페이지 로드 시 패널 생성
 window.addEventListener('load', createPanel); 
