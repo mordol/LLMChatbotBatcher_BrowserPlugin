@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Chatbot Batcher",
+  "version": "1.0",
+  "description": "LLM 웹서비스에 복수의 문서내용을 순차적으로 입력하고 출력한 결과를 개별 문서로 생성하는 플러그인",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_title": "LLM Chatbot Batcher"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ]
+} 
