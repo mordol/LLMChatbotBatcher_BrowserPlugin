@@ -1,5 +1,7 @@
 // 전역 변수로 파일 목록 저장
 let selectedFiles = [];
+// 작업 취소 플래그
+let isCancelled = false;
 
 // 파일과 문자열을 받아 처리하는 함수
 async function processFileAndDownload(file, content) {
@@ -238,82 +240,133 @@ function createPanel() {
         margin-bottom: 10px;
     `;
     
+    // 버튼 활성화/비활성화 함수
+    function setButtonsEnabled(enabled) {
+        fileSelectButton.disabled = !enabled;
+        closeButton.disabled = !enabled;
+        
+        // 비활성화 시 시각적 피드백
+        const buttons = [fileSelectButton, closeButton];
+        buttons.forEach(button => {
+            button.style.opacity = enabled ? '1' : '0.5';
+            button.style.cursor = enabled ? 'pointer' : 'not-allowed';
+        });
+    }
+
     // 작업 처리 함수
     async function processFiles() {
+        // 작업 취소 플래그 초기화
+        isCancelled = false;
+        
+        // 시작 버튼을 취소 버튼으로 변경
+        startButton.textContent = '취소';
+        startButton.style.backgroundColor = '#ff4444';
+        
+        // 다른 버튼들 비활성화
+        setButtonsEnabled(false);
 
-        // 1. 파일 개수 확인
-        if (selectedFiles.length === 0) {
-            statusDisplay.textContent = '오류: 선택된 파일이 없습니다.';
-            return;
-        }
-        statusDisplay.textContent = `처리 시작: 0/${selectedFiles.length}`;
-
-        let processedCount = 0;
-        const TIMEOUT_DURATION = 60000; // 1분
-
-        // 2. 파일 개수만큼 반복
-        for (let i = 0; i < selectedFiles.length; i++) {
-            try {
-                const file = selectedFiles[i];
-                
-                // 3. 파일 내용을 textarea에 입력
-                const text = await file.text();
-                inputTextToTextarea(text);
-
-                // 4. submit 버튼 클릭
-                const submitButton = findSubmitButton();
-                if (!submitButton) {
-                    statusDisplay.textContent = '오류: 전송 버튼을 찾을 수 없습니다.';
-                    return;
-                }
-                submitButton.click();
-
-                // 5. 1초 대기
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                // 6. waiting 메시지 입력
-                inputTextToTextarea("waiting...");
-
-                // 7. submit 버튼 사용 가능할 때까지 대기
-                const startTime = Date.now();
-                let isSubmitAvailable = false;
-
-                while (Date.now() - startTime < TIMEOUT_DURATION) {
-                    if (checkSubmitAvailable()) {
-                        isSubmitAvailable = true;
-                        break;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-
-                if (!isSubmitAvailable) {
-                    statusDisplay.textContent = `오류: 응답 대기 시간 초과 (${processedCount}/${selectedFiles.length})`;
-                    return;
-                }
-
-                // 8. 응답 메시지 가져와서 파일 저장
-                const response = findLastChatbotMessage();
-                await processFileAndDownload(file, response);
-
-                // 9. 진행 상황 업데이트
-                processedCount++;
-                statusDisplay.textContent = `작업중... ${processedCount}/${selectedFiles.length}`;
-
-            } catch (error) {
-                statusDisplay.textContent = `오류 발생: ${error.message} (${processedCount}/${selectedFiles.length})`;
+        try {
+            // 1. 파일 개수 확인
+            if (selectedFiles.length === 0) {
+                statusDisplay.textContent = '오류: 선택된 파일이 없습니다.';
                 return;
             }
+            statusDisplay.textContent = `처리 시작: 0/${selectedFiles.length}`;
+
+            let processedCount = 0;
+            const TIMEOUT_DURATION = 60000; // 1분
+
+            // 2. 파일 개수만큼 반복
+            for (let i = 0; i < selectedFiles.length; i++) {
+                // 취소 확인
+                if (isCancelled) {
+                    statusDisplay.textContent = `작업 취소됨: ${processedCount}/${selectedFiles.length} 파일 처리됨`;
+                    break;
+                }
+
+                try {
+                    const file = selectedFiles[i];
+                    
+                    // 3. 파일 내용을 textarea에 입력
+                    const text = await file.text();
+                    inputTextToTextarea(text);
+
+                    // 4. submit 버튼 클릭
+                    const submitButton = findSubmitButton();
+                    if (!submitButton) {
+                        statusDisplay.textContent = '오류: 전송 버튼을 찾을 수 없습니다.';
+                        break;
+                    }
+                    submitButton.click();
+
+                    // 5. 1초 대기
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    // 6. waiting 메시지 입력
+                    inputTextToTextarea("waiting...");
+
+                    // 7. submit 버튼 사용 가능할 때까지 대기
+                    const startTime = Date.now();
+                    let isSubmitAvailable = false;
+
+                    while (Date.now() - startTime < TIMEOUT_DURATION) {
+                        // 취소 확인
+                        if (isCancelled) {
+                            statusDisplay.textContent = `작업 취소됨: ${processedCount}/${selectedFiles.length} 파일 처리됨`;
+                            break;
+                        }
+
+                        if (checkSubmitAvailable()) {
+                            isSubmitAvailable = true;
+                            break;
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+
+                    if (isCancelled) {
+                        break;
+                    }
+
+                    if (!isSubmitAvailable) {
+                        statusDisplay.textContent = `오류: 응답 대기 시간 초과 (${processedCount}/${selectedFiles.length})`;
+                        break;
+                    }
+
+                    // 8. 응답 메시지 가져와서 파일 저장
+                    const response = findLastChatbotMessage();
+                    await processFileAndDownload(file, response);
+
+                    // 9. 진행 상황 업데이트
+                    processedCount++;
+                    statusDisplay.textContent = `작업중... ${processedCount}/${selectedFiles.length}`;
+
+                } catch (error) {
+                    statusDisplay.textContent = `오류 발생: ${error.message} (${processedCount}/${selectedFiles.length})`;
+                    break;
+                }
+            }
+
+            // 10. 작업 완료 메시지
+            if (!isCancelled) {
+                statusDisplay.textContent = `작업 완료: 총 ${processedCount}개 파일 처리됨`;
+            }
+
+            clearTextarea();
+        } finally {
+            // 버튼 상태 초기화
+            startButton.textContent = '작업 시작';
+            startButton.style.backgroundColor = '#9C27B0';
+            setButtonsEnabled(true);
         }
-
-        // 10. 작업 완료 메시지
-        statusDisplay.textContent = `작업 완료: 총 ${processedCount}개 파일 처리됨`;
-
-        clearTextarea();
     }
 
     // 작업 시작 버튼 클릭 이벤트
     startButton.onclick = () => {
-        processFiles();
+        if (startButton.textContent === '취소') {
+            isCancelled = true;
+        } else {
+            processFiles();
+        }
     };
     
     // 진행 상황 표시 생성
