@@ -76,6 +76,14 @@ function addFileToList(fileName) {
     }
 }
 
+// Last chatbot message 찾는 함수
+function findLastChatbotMessage() {
+    const messages = document.querySelectorAll('div.css-3h66yh');
+    if (messages.length > 0) {
+        return messages[messages.length - 1].textContent;
+    }
+}
+
 // background script로부터 메시지 수신
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "togglePanel") {
@@ -181,46 +189,50 @@ function createPanel() {
     
     // 테스트 버튼 클릭 이벤트
     testButton.onclick = async () => {
-        if (selectedFiles.length === 0) {
-            console.log('선택된 파일이 없습니다.');
-            return;
-        }
+
+        const lastChatbotMessage = findLastChatbotMessage();
+        console.log('Last chatbot message:', lastChatbotMessage);
+
+        // if (selectedFiles.length === 0) {
+        //     console.log('선택된 파일이 없습니다.');
+        //     return;
+        // }
         
-        for (let i = 0; i < selectedFiles.length; i++) {
-            const file = selectedFiles[i];
-            try {
-                const text = await file.text();
-                // 파일명에서 확장자 분리
-                const lastDotIndex = file.name.lastIndexOf('.');
-                const fileName = file.name.substring(0, lastDotIndex);
-                const fileExt = file.name.substring(lastDotIndex);
+        // for (let i = 0; i < selectedFiles.length; i++) {
+        //     const file = selectedFiles[i];
+        //     try {
+        //         const text = await file.text();
+        //         // 파일명에서 확장자 분리
+        //         const lastDotIndex = file.name.lastIndexOf('.');
+        //         const fileName = file.name.substring(0, lastDotIndex);
+        //         const fileExt = file.name.substring(lastDotIndex);
                 
-                // 새로운 파일명 생성
-                const newFileName = `${fileName}_result${fileExt}`;
+        //         // 새로운 파일명 생성
+        //         const newFileName = `${fileName}_result${fileExt}`;
                 
-                // Blob 생성
-                const blob = new Blob([text], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
+        //         // Blob 생성
+        //         const blob = new Blob([text], { type: 'text/plain' });
+        //         const url = URL.createObjectURL(blob);
                 
-                // background script에 다운로드 요청
-                chrome.runtime.sendMessage({
-                    action: "downloadFile",
-                    url: url,
-                    filename: newFileName,
-                    saveAs: false
-                }, (response) => {
-                    if (response && response.success) {
-                        console.log(`파일 ${newFileName} 저장 완료`);
-                    } else {
-                        console.error(`파일 ${newFileName} 저장 실패:`, response?.error);
-                    }
-                    // Blob URL 해제
-                    URL.revokeObjectURL(url);
-                });
-            } catch (error) {
-                console.error(`파일 ${file.name} 처리 중 오류 발생:`, error);
-            }
-        }
+        //         // background script에 다운로드 요청
+        //         chrome.runtime.sendMessage({
+        //             action: "downloadFile",
+        //             url: url,
+        //             filename: newFileName,
+        //             saveAs: false
+        //         }, (response) => {
+        //             if (response && response.success) {
+        //                 console.log(`파일 ${newFileName} 저장 완료`);
+        //             } else {
+        //                 console.error(`파일 ${newFileName} 저장 실패:`, response?.error);
+        //             }
+        //             // Blob URL 해제
+        //             URL.revokeObjectURL(url);
+        //         });
+        //     } catch (error) {
+        //         console.error(`파일 ${file.name} 처리 중 오류 발생:`, error);
+        //     }
+        // }
     };
     
     // 닫기 버튼 생성
