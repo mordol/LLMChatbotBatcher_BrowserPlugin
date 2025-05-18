@@ -1,6 +1,44 @@
 // 전역 변수로 파일 목록 저장
 let selectedFiles = [];
 
+// 파일과 문자열을 받아 처리하는 함수
+async function processFileAndDownload(file, content) {
+    try {
+        // 파일명에서 확장자 분리
+        const lastDotIndex = file.name.lastIndexOf('.');
+        const fileName = file.name.substring(0, lastDotIndex);
+        const fileExt = file.name.substring(lastDotIndex);
+        
+        // 새로운 파일명 생성
+        const newFileName = `${fileName}_result${fileExt}`;
+        
+        // Blob 생성
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        
+        // background script에 다운로드 요청
+        return new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+                action: "downloadFile",
+                url: url,
+                filename: newFileName,
+                saveAs: false
+            }, (response) => {
+                // Blob URL 해제
+                URL.revokeObjectURL(url);
+                
+                if (response && response.success) {
+                    resolve(newFileName);
+                } else {
+                    reject(new Error(response?.error || '파일 저장 실패'));
+                }
+            });
+        });
+    } catch (error) {
+        throw new Error(`파일 ${file.name} 처리 중 오류 발생: ${error.message}`);
+    }
+}
+
 // textarea에 문자열을 입력하는 함수
 function inputTextToTextarea(text) {
     // textarea 요소 찾기 (aria-invalid와 placeholder 속성 사용)
@@ -14,29 +52,42 @@ function inputTextToTextarea(text) {
         const inputEvent = new Event('input', { bubbles: true });
         textarea.dispatchEvent(inputEvent);
         
-        console.log('텍스트가 성공적으로 입력되었습니다:', text);
+        //console.log('텍스트가 성공적으로 입력되었습니다:', text);
     } else {
         console.log('textarea를 찾을 수 없습니다.');
     }
 }
 
-// 버튼을 찾고 type을 출력하는 함수
-function findSubmitButton() {
-    const button = document.querySelector('button.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeExtraLarge');
+// textarea를 초기화하는 함수
+function clearTextarea() {
+    const textarea = document.querySelector('textarea[aria-invalid="false"][placeholder="Send a message"]');
     
-    if (button) {
-        const buttonType = button.getAttribute('type');
-        console.log('찾은 버튼의 type:', buttonType);
+    if (textarea) {
+        // textarea 초기화
+        textarea.value = '';
         
-        if (buttonType === 'submit') {
-            // 버튼 클릭 이벤트 발생
-            button.click();
-            return true;
-        }
+        // input 이벤트 발생시키기
+        const inputEvent = new Event('input', { bubbles: true });
+        textarea.dispatchEvent(inputEvent);
+    }
+}
+
+// 버튼을 찾는 함수
+function findSubmitButton() {
+    return document.querySelector('button.MuiButtonBase-root.MuiIconButton-root.MuiIconButton-sizeExtraLarge');
+}
+
+// 저장된 버튼의 type이 submit인지 확인하는 함수
+function checkSubmitAvailable() {
+
+    const submitButton = findSubmitButton();
+
+    if (!submitButton) {
+        return false;
     }
     
-    console.log('버튼을 찾을 수 없거나 submit 타입이 아닙니다.');
-    return false;
+    const buttonType = submitButton.getAttribute('type');
+    return buttonType === 'submit';
 }
 
 // 패널을 닫는 함수
@@ -173,12 +224,12 @@ function createPanel() {
         padding: 10px;
     `;
     
-    // 테스트 버튼 생성
-    const testButton = document.createElement('button');
-    testButton.textContent = '파일 목록 테스트';
-    testButton.style.cssText = `
+    // 작업 시작 버튼 생성
+    const startButton = document.createElement('button');
+    startButton.textContent = '작업 시작';
+    startButton.style.cssText = `
         padding: 10px;
-        background-color: #2196F3;
+        background-color: #9C27B0;
         color: white;
         border: none;
         border-radius: 4px;
@@ -187,53 +238,100 @@ function createPanel() {
         margin-bottom: 10px;
     `;
     
-    // 테스트 버튼 클릭 이벤트
-    testButton.onclick = async () => {
+    // 작업 처리 함수
+    async function processFiles() {
 
-        const lastChatbotMessage = findLastChatbotMessage();
-        console.log('Last chatbot message:', lastChatbotMessage);
+        // 1. 파일 개수 확인
+        if (selectedFiles.length === 0) {
+            statusDisplay.textContent = '오류: 선택된 파일이 없습니다.';
+            return;
+        }
+        statusDisplay.textContent = `처리 시작: 0/${selectedFiles.length}`;
 
-        // if (selectedFiles.length === 0) {
-        //     console.log('선택된 파일이 없습니다.');
-        //     return;
-        // }
-        
-        // for (let i = 0; i < selectedFiles.length; i++) {
-        //     const file = selectedFiles[i];
-        //     try {
-        //         const text = await file.text();
-        //         // 파일명에서 확장자 분리
-        //         const lastDotIndex = file.name.lastIndexOf('.');
-        //         const fileName = file.name.substring(0, lastDotIndex);
-        //         const fileExt = file.name.substring(lastDotIndex);
+        let processedCount = 0;
+        const TIMEOUT_DURATION = 60000; // 1분
+
+        // 2. 파일 개수만큼 반복
+        for (let i = 0; i < selectedFiles.length; i++) {
+            try {
+                const file = selectedFiles[i];
                 
-        //         // 새로운 파일명 생성
-        //         const newFileName = `${fileName}_result${fileExt}`;
-                
-        //         // Blob 생성
-        //         const blob = new Blob([text], { type: 'text/plain' });
-        //         const url = URL.createObjectURL(blob);
-                
-        //         // background script에 다운로드 요청
-        //         chrome.runtime.sendMessage({
-        //             action: "downloadFile",
-        //             url: url,
-        //             filename: newFileName,
-        //             saveAs: false
-        //         }, (response) => {
-        //             if (response && response.success) {
-        //                 console.log(`파일 ${newFileName} 저장 완료`);
-        //             } else {
-        //                 console.error(`파일 ${newFileName} 저장 실패:`, response?.error);
-        //             }
-        //             // Blob URL 해제
-        //             URL.revokeObjectURL(url);
-        //         });
-        //     } catch (error) {
-        //         console.error(`파일 ${file.name} 처리 중 오류 발생:`, error);
-        //     }
-        // }
+                // 3. 파일 내용을 textarea에 입력
+                const text = await file.text();
+                inputTextToTextarea(text);
+
+                // 4. submit 버튼 클릭
+                const submitButton = findSubmitButton();
+                if (!submitButton) {
+                    statusDisplay.textContent = '오류: 전송 버튼을 찾을 수 없습니다.';
+                    return;
+                }
+                submitButton.click();
+
+                // 5. 1초 대기
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // 6. waiting 메시지 입력
+                inputTextToTextarea("waiting...");
+
+                // 7. submit 버튼 사용 가능할 때까지 대기
+                const startTime = Date.now();
+                let isSubmitAvailable = false;
+
+                while (Date.now() - startTime < TIMEOUT_DURATION) {
+                    if (checkSubmitAvailable()) {
+                        isSubmitAvailable = true;
+                        break;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                if (!isSubmitAvailable) {
+                    statusDisplay.textContent = `오류: 응답 대기 시간 초과 (${processedCount}/${selectedFiles.length})`;
+                    return;
+                }
+
+                // 8. 응답 메시지 가져와서 파일 저장
+                const response = findLastChatbotMessage();
+                await processFileAndDownload(file, response);
+
+                // 9. 진행 상황 업데이트
+                processedCount++;
+                statusDisplay.textContent = `작업중... ${processedCount}/${selectedFiles.length}`;
+
+            } catch (error) {
+                statusDisplay.textContent = `오류 발생: ${error.message} (${processedCount}/${selectedFiles.length})`;
+                return;
+            }
+        }
+
+        // 10. 작업 완료 메시지
+        statusDisplay.textContent = `작업 완료: 총 ${processedCount}개 파일 처리됨`;
+
+        clearTextarea();
+    }
+
+    // 작업 시작 버튼 클릭 이벤트
+    startButton.onclick = () => {
+        processFiles();
     };
+    
+    // 진행 상황 표시 생성
+    const statusDisplay = document.createElement('div');
+    statusDisplay.id = 'status-display';
+    statusDisplay.style.cssText = `
+        padding: 10px;
+        text-align: left;
+        font-size: 14px;
+        color: #666;
+        margin-bottom: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+        min-height: 40px;
+        line-height: 1.4;
+    `;
+    statusDisplay.textContent = '대기 중...';
     
     // 닫기 버튼 생성
     const closeButton = document.createElement('button');
@@ -256,7 +354,8 @@ function createPanel() {
     panel.appendChild(fileSelectButton);
     panel.appendChild(fileInput);
     panel.appendChild(fileListContainer);
-    panel.appendChild(testButton);
+    panel.appendChild(startButton);
+    panel.appendChild(statusDisplay);
     panel.appendChild(closeButton);
     
     document.body.appendChild(panel);
